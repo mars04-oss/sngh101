@@ -91,10 +91,10 @@
         <!-- Header Section -->
         <header class="text-center mb-6 relative">
             <!-- Top Right API Key Settings Button -->
-            <button onclick="openApiKeyModal()" class="sm:absolute sm:top-0 sm:right-0 mb-3 sm:mb-0 mx-auto text-xs font-semibold px-3 py-1.5 bg-white/80 hover:bg-white text-slate-700 rounded-full border border-amber-200 shadow-sm flex items-center gap-1.5 transition-all">
-                <span id="api-key-status-badge" class="flex items-center gap-1.5">
-                    <i class="fa-solid fa-key text-amber-500"></i>
-                    <span>API 키 설정</span>
+            <button onclick="openApiKeyModal()" class="sm:absolute sm:top-0 sm:right-0 mb-3 sm:mb-0 mx-auto text-[11px] font-semibold px-2.5 py-1 bg-white/60 hover:bg-white text-slate-500 rounded-full border border-amber-200/60 shadow-sm flex items-center gap-1 transition-all opacity-70 hover:opacity-100">
+                <span id="api-key-status-badge" class="flex items-center gap-1">
+                    <i class="fa-solid fa-gear text-slate-400"></i>
+                    <span>설정</span>
                 </span>
             </button>
 
@@ -377,6 +377,10 @@
     </div>
 
     <script>
+        // 🔑 [선생님 전용 설정] 아래 따옴표 안에 선생님의 Gemini API 키를 붙여넣어 주세요!
+        // 여기에 키를 입력해 두시면 학생들이 접속했을 때 아무런 입력 없이 바로 이용할 수 있습니다.
+        const DEFAULT_API_KEY = "AQ.Ab8RN6IdrF5PCki3Nm-fD_UYbqAs8_UkTOYb4crgHOhAhOttVQ"; 
+
         // Global State Variables
         let selectedMoodText = "";
         let currentGeneratedText = "";
@@ -385,16 +389,16 @@
 
         // API Key Storage Helpers
         function getApiKey() {
-            return localStorage.getItem('gemini_api_key') || "";
+            return localStorage.getItem('gemini_api_key') || DEFAULT_API_KEY || "";
         }
 
         function updateApiKeyBadge() {
             const badge = document.getElementById('api-key-status-badge');
             const key = getApiKey();
             if (key) {
-                badge.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i><span class="text-emerald-700">API 키 저장됨</span>';
+                badge.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i><span>연결됨</span>';
             } else {
-                badge.innerHTML = '<i class="fa-solid fa-key text-amber-500"></i><span>API 키 설정</span>';
+                badge.innerHTML = '<i class="fa-solid fa-key text-amber-500"></i><span>API 키 필요</span>';
             }
         }
 
