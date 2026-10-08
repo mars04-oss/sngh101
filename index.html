@@ -462,85 +462,125 @@
 
         async function fetchGeminiText(prompt, systemInstruction) {
             const apiKey = getApiKey();
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+            const models = [
+                'gemini-2.5-flash',
+                'gemini-1.5-flash',
+                'gemini-2.0-flash',
+                'gemini-3-flash-preview'
+            ];
 
-            const payload = {
-                contents: [{ parts: [{ text: prompt }] }],
-                systemInstruction: { parts: [{ text: systemInstruction }] }
-            };
+            for (const model of models) {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemInstruction }] }
+                };
 
-            let retries = 3;
-            let delay = 1000;
+                let retries = 3;
+                let delay = 1500;
 
-            while (retries > 0) {
-                try {
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
-                    const data = await response.json();
-                    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-                } catch (err) {
-                    retries--;
-                    if (retries === 0) throw err;
-                    await new Promise(res => setTimeout(res, delay));
-                    delay *= 2;
+                while (retries > 0) {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (response.status === 429) {
+                            // Rate limit hit: wait exponential backoff
+                            retries--;
+                            if (retries > 0) {
+                                await new Promise(res => setTimeout(res, delay));
+                                delay *= 2;
+                                continue;
+                            }
+                            break; // Try next fallback model
+                        }
+
+                        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+                        const data = await response.json();
+                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (text) return text;
+                    } catch (err) {
+                        retries--;
+                        if (retries === 0) break;
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2;
+                    }
                 }
             }
+            return null;
         }
 
         async function fetchGeminiTTS(textToRead) {
             const apiKey = getApiKey();
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+            const ttsModels = [
+                'gemini-2.5-flash-preview-tts',
+                'gemini-2.5-flash'
+            ];
 
-            const payload = {
-                contents: [{
-                    parts: [{ text: `다정하고 스윗한 선생님 목소리로 읽어주세요: ${textToRead}` }]
-                }],
-                generationConfig: {
-                    responseModalities: ["AUDIO"],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: "Aoede" }
+            for (const model of ttsModels) {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        parts: [{ text: `다정하고 스윗한 선생님 목소리로 읽어주세요: ${textToRead}` }]
+                    }],
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: { voiceName: "Aoede" }
+                            }
                         }
                     }
-                }
-            };
+                };
 
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                let retries = 2;
+                let delay = 2000;
 
-                if (!response.ok) return null;
-                const result = await response.json();
-                const part = result?.candidates?.[0]?.content?.parts?.[0];
-                const audioDataBase64 = part?.inlineData?.data;
-                const mimeType = part?.inlineData?.mimeType || "";
+                while (retries > 0) {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
 
-                if (audioDataBase64) {
-                    let sampleRate = 24000;
-                    const match = mimeType.match(/rate=(\d+)/);
-                    if (match) sampleRate = parseInt(match[1], 10);
+                        if (response.status === 429) {
+                            retries--;
+                            if (retries > 0) await new Promise(res => setTimeout(res, delay));
+                            delay *= 2;
+                            continue;
+                        }
 
-                    const binaryString = atob(audioDataBase64);
-                    const len = binaryString.length;
-                    const bytes = new Uint8Array(len);
-                    for (let i = 0; i < len; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                        if (!response.ok) break;
+                        const result = await response.json();
+                        const part = result?.candidates?.[0]?.content?.parts?.[0];
+                        const audioDataBase64 = part?.inlineData?.data;
+                        const mimeType = part?.inlineData?.mimeType || "";
+
+                        if (audioDataBase64) {
+                            let sampleRate = 24000;
+                            const match = mimeType.match(/rate=(\d+)/);
+                            if (match) sampleRate = parseInt(match[1], 10);
+
+                            const binaryString = atob(audioDataBase64);
+                            const len = binaryString.length;
+                            const bytes = new Uint8Array(len);
+                            for (let i = 0; i < len; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            const pcm16 = new Int16Array(bytes.buffer);
+
+                            const wavBlob = pcmToWav(pcm16, sampleRate);
+                            return URL.createObjectURL(wavBlob);
+                        }
+                    } catch (err) {
+                        console.warn("TTS generation attempt failed:", err);
                     }
-                    const pcm16 = new Int16Array(bytes.buffer);
-
-                    const wavBlob = pcmToWav(pcm16, sampleRate);
-                    return URL.createObjectURL(wavBlob);
+                    retries--;
                 }
-            } catch (err) {
-                console.warn("TTS generation failed:", err);
             }
             return null;
         }
@@ -582,7 +622,7 @@
 
         async function fetchGeminiMascotImage(feelingSummary) {
             const apiKey = getApiKey();
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`;
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
             const imagePrompt = `A cute, heartwarming watercolor digital illustration of a lucky mascot character (e.g. cute tiny bear or cat carrying a glowing lucky pill or star) designed to bring comfort and high test score luck to a tired Korean high school student feeling: ${feelingSummary}. Soft pastels, warm lighting, cheerful and cozy style, minimal background, high quality.`;
 
@@ -612,8 +652,11 @@
             return null;
         }
 
+        function getFallbackEncouragement(studentName, feeling) {
+            return `${studentName}야, 지친 마음에 담임선생님이 따뜻한 안아줌과 위로를 보낸다! 💛\n\n지금 시험 준비하느라 몸도 마음도 많이 지쳤지? 하지만 ${studentName}(이)가 흘린 땀방울 하나하나는 절대 사라지지 않고 너의 근육이 되고 있단다.\n\n결과보다 소중한 건 지금처럼 하루하루 견뎌내는 네 모습이야. 잠시 눈을 감고 깊게 숨을 3번 쉬어봐. 선생님은 언제나 우리 1반 ${studentName}(이)를 진심으로 응원해! 💪✨`;
+        }
+
         async function generateEncouragement() {
-            // Check if API key is set before proceeding
             if (!getApiKey()) {
                 showToast("Gemini API 키를 먼저 설정해주세요!", true);
                 openApiKeyModal();
@@ -649,18 +692,23 @@
 [선생님 어조 설정]: ${toneOption}
 
 [답장 작성 지침]:
-1. 메시지 시작 부분이나 글 흐름 속에서 학생 이름('${studentName}')을 다정하고 친근하게 직접 불러주세요. 선택한 어조에 맞춰 자연스럽게 호칭을 부르세요 (예: '${studentName}야,', '${studentName} 학생,', '${studentName}아~' 등).
+1. 메시지 시작 부분이나 글 흐름 속에서 학생 이름('${studentName}')을 다정하고 친근하게 직접 불러주세요.
 2. 학생이 느낀 감정(피로, 불안, 포기하고 싶음, 남과의 비교 등)을 진심으로 깊이 공감하고 위로해 주세요.
 3. 1반 담임선생님으로서 우리 반 아이를 응원하는 마음을 담아 성적보다 존재 자체가 소중하다는 메시지를 전해 주세요.
-4. 머리를 식힐 수 있는 아주 현실적이고 작은 1분 팁(예: 따뜻한 물 한 잔 마시기, 3초 깊게 숨쉬기, 스트레칭 등)을 하나 포함해 주세요.
-5. 너무 긴 사설 대신 4-6줄 내외로 부담 없이 편안히 읽히도록 단락을 나누어 작성해 주세요.
+4. 머리를 식힐 수 있는 아주 현실적이고 작은 1분 팁을 하나 포함해 주세요.
+5. 4-6줄 내외로 부담 없이 편안히 읽히도록 단락을 나누어 작성해 주세요.
 6. 이모지를 적절히 활용하여 다정하고 따뜻하게 마무리하세요.
             `.trim();
 
             try {
-                // 1. Text Generation
-                const encouragementText = await fetchGeminiText(fullStudentContext, systemPrompt);
-                currentGeneratedText = encouragementText || `${studentName}야, 지친 마음에 선생님이 큰 안아줌을 보낸다! 너는 충분히 잘해내고 있어 💛`;
+                // 1. Text Generation with Fallback handling
+                let encouragementText = await fetchGeminiText(fullStudentContext, systemPrompt);
+                
+                if (!encouragementText) {
+                    encouragementText = getFallbackEncouragement(studentName, selectedMoodText || customFeeling);
+                }
+                
+                currentGeneratedText = encouragementText;
 
                 // Update UI Text
                 document.getElementById('encouragement-text').innerHTML = currentGeneratedText.replace(/\n/g, '<br>');
@@ -677,13 +725,15 @@
                     origin: { y: 0.6 }
                 });
 
-                // 2. Parallel Async Requests for TTS and Mascot Image
+                // 2. Staggered Async Requests (Wait 500ms before TTS & Image to avoid 429 concurrency)
+                await new Promise(res => setTimeout(res, 500));
+
                 fetchGeminiTTS(currentGeneratedText).then(audioUrl => {
                     if (audioUrl) {
                         currentAudioUrl = audioUrl;
                         document.getElementById('tts-status').textContent = "준비 완료! 재생 버튼을 누르세요.";
                     } else {
-                        document.getElementById('tts-status').textContent = "음성 생성 실패 (API 키 및 설정을 확인해주세요)";
+                        document.getElementById('tts-status').textContent = "음성 생성 일시 제한 (잠시 후 다시 시도해 주세요)";
                     }
                 });
 
@@ -701,10 +751,13 @@
                 });
 
             } catch (err) {
-                console.error(err);
-                showToast("응원 메시지를 가져오는 데 실패했습니다. API 키를 확인해주세요.", true);
-                resetForm();
-                openApiKeyModal();
+                console.error("Encouragement generation error handled:", err);
+                // Fallback UI display in case of unexpected errors
+                currentGeneratedText = getFallbackEncouragement(studentName, selectedMoodText || customFeeling);
+                document.getElementById('encouragement-text').innerHTML = currentGeneratedText.replace(/\n/g, '<br>');
+                document.getElementById('created-time').textContent = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                document.getElementById('loading-section').classList.add('hidden');
+                document.getElementById('result-section').classList.remove('hidden');
             }
         }
 
